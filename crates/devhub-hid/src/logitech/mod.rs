@@ -172,6 +172,19 @@ impl DeviceDriver for LogitechDriver {
         state(&data, current)
     }
     fn apply(&self, change: &Change) -> HubResult<()> {
+        // `live_dpi`: 0x2201 setSensorDpi で今の DPI だけ変える（オンボードメモリは書かない）。
+        // アプリ連動の自動切替用。前面アプリの切替ごとにフラッシュを書き換えないため。
+        if let Change::Setting { id, value: SettingValue::Choice(v) } = change {
+            if id == "live_dpi" {
+                let dpi = u32::try_from(*v).ok().filter(|d| live_dpi_valid(*d))
+                    .ok_or_else(|| HubError::Invalid("live_dpi は100〜12000、50刻み".into()))?;
+                if self.dpi == 0 { return Err(HubError::Unsupported("G304 adjustable DPI")); }
+                let mut args = vec![0];
+                args.extend_from_slice(&(dpi as u16).to_be_bytes());
+                self.link.lock().unwrap_or_else(|p| p.into_inner()).request(self.dpi, 3, &args)?;
+                return Ok(());
+            }
+        }
         apply_profile(&mut *self.link.lock().unwrap_or_else(|p| p.into_inner()), self.onboard, change)
     }
     fn battery(&self) -> HubResult<Battery> {

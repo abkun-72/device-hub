@@ -68,6 +68,8 @@ pub fn dpi_values(data: &[u8]) -> HubResult<Vec<u32>> {
     Ok(values[..count].to_vec())
 }
 
+pub fn live_dpi_valid(dpi: u32) -> bool { valid_dpi(dpi) }
+
 fn valid_dpi(dpi: u32) -> bool { (100..=12000).contains(&dpi) && dpi.is_multiple_of(50) }
 
 const MEDIA: &[(MediaFn, u16)] = &[
