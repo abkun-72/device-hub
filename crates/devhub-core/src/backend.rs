@@ -89,7 +89,8 @@ pub enum HubEvent {
 /// ハブ全体の入口。`devhub_hid::connect()` が作る。
 pub trait HubBackend: Send + Sync {
     /// いま見えているデバイスの一覧。未対応機も `supported=false` で返すと UI に出る。
-    /// UI が 2 秒ごとに呼ぶので軽く保つ (HID の列挙のみ。デバイスへの問い合わせはしない)。
+    /// UI が 2 秒ごとに呼ぶので軽く保つ。原則 HID 列挙のみ。
+    /// LIGHTSPEED の未オープン候補は、無応答の受信機を除くため250ms上限の IRoot 照会を行う。
     fn scan(&self) -> HubResult<Vec<DeviceInfo>>;
 
     /// デバイス 1 台のドライバ。同じ ID には同じインスタンスを返してよい。

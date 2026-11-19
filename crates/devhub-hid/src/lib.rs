@@ -22,6 +22,8 @@ use std::sync::{Arc, Mutex};
 pub mod atk;
 #[doc(hidden)]
 pub mod lamzu;
+#[doc(hidden)]
+pub mod logitech;
 #[allow(dead_code)]
 mod mousefit;
 mod mousefit8;
@@ -53,6 +55,7 @@ fn driver_ready(kind: DriverKind) -> bool {
         DriverKind::Walkplay => true,
         DriverKind::Atk => true,
         DriverKind::Lamzu => true,
+        DriverKind::Logitech => true,
         DriverKind::Unsupported => false,
     }
 }
@@ -105,10 +108,21 @@ impl HubBackend for RealHub {
                 d.product_id(),
                 serial
                     .clone()
+                    .filter(|_| spec.driver != DriverKind::Logitech)
                     .unwrap_or_else(|| format!("{:08x}", fxhash(d.path().to_bytes())))
             ));
             if out.iter().any(|o| o.id == id) {
                 continue;
+            }
+            // LIGHTSPEED は同じ PID の受信機が複数存在する。未オープンの
+            // G304 候補だけ IRoot を短時間で照会し、無応答の受信機を除く。
+            // 既存ドライバの input queue は別ハンドルで消費しない。
+            if spec.driver == DriverKind::Logitech {
+                let opened = self.drivers.lock().unwrap_or_else(|p| p.into_inner())
+                    .contains_key(&id.0) && prev_paths.get(&id.0).is_some_and(|p| p.as_c_str() == d.path());
+                if !opened && !d.open_device(&api).is_ok_and(logitech::connected) {
+                    continue;
+                }
             }
             paths.insert(id.0.clone(), d.path().to_owned());
             // 表示名は HID の製品文字列を優先 (無ければ registry の名前)。
@@ -287,6 +301,7 @@ impl RealHub {
             DriverKind::Walkplay => Arc::new(walkplay::open(dev, info)?),
             DriverKind::Atk => Arc::new(atk::open(dev, info, events)?),
             DriverKind::Lamzu => Arc::new(lamzu::open(dev, info, events)?),
+            DriverKind::Logitech => Arc::new(logitech::open(dev, info)?),
             DriverKind::Unsupported => {
                 return Err(HubError::NotImplemented("このデバイスのドライバ"))
             }

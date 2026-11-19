@@ -1104,3 +1104,94 @@ get/set は cmd が +0x80/同一値の関係。`devID` はプロファイル番�
 - 公式の日本語表示名: 移動同期 / 直線補正 / リップル / LOD / ガラスモード / 20K FPS / 競技モード / 角度調整 /
   スリープ時間 / スクロールBhop / ホイール応答時間 / デバウンスタイム / 高速トリガー / ドングルLED (信号) /
   プロファイルをリセット / 完全初期化。X-Y軸分離は DPI タブの X/Y 切り替えで扱う (設定行には出さない)。
+
+## 6. Logicool G304 LIGHTSPEED — HID++ 2.0 / オンボード format 3
+
+出典: 実機検証済み Python (`.private-analysis/logitech/hidpp.py`, `read_onboard.py`,
+`write_onboard.py`, `check.py`) と `onboard_backup.json`、
+[libratbag の HID++ 公開定義](https://github.com/libratbag/libratbag/blob/master/src/hidpp20.h)
+および [HID++ 実装](https://github.com/libratbag/libratbag/blob/master/src/hidpp20.c)。
+電池 feature の解釈は [Solaar の HID++ 実装](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp20.py) も参照。
+Rust ドライバの実機書き込み検証は別担当が実施する。本実装作業では設定書き込みを実行しない。
+
+### 6.1 接続と宣言
+
+- レシーバー `046D:C53F`、usage page `FF00`。usage 1 は short (`10`, 7B)、
+  usage 2 は long (`11`, 20B)。ドライバは **usage 2 だけ**を開く。
+- 同じレシーバーが2個ある環境では、未オープン候補へ device index 1 の IRoot を
+  250ms 上限で照会し、応答する受信機だけを列挙する。ドライバを開いた受信機へは
+  scan 側から問い合わせない（input queue の競合防止）。休眠時はマウスを動かすと次の scan で再検出する。
+- `open` で name feature `0005` を読み G304 を確認する。PID だけで別機種へ書き込まない。
+- long request: `[11, 01, featureIndex, fn<<4|softwareId, params(16B)]`。
+  softwareId は1–15を巡回。応答の report ID・長さ・device index・feature・fn・softwareId を照合する。
+  error: `[10/11, 01, FF, feature, fn|software, error, ...]`。書き込み要求を自動再送しない。
+- IRoot fn0: feature ID を BE16 で送って index を得る。実機は `8100 → 7`, `2201 → 1A`、`1B04` は無い。
+- caps: DPI 100–12000/50刻み、1–5ステージ、XY/色/マクロ/照明なし。
+  6ボタンは左・右・中・戻る・進む・G6。polling は125/250/500/1000Hz。
+  `default_dpi_stage` は1始まりの「起動時 DPI ステージ」として既存の設定 UI に宣言する。
+
+### 6.2 0x8100 メモリ
+
+- fn0 description: `01 03 01 01 01 06 06 00 FF 0A 02 ...`。
+  memory model 1 / profile format 3 / macro format 1 / profiles 1 / OOB 1 /
+  buttons 6 / sectors 6 / sector size **BE16=255**。未知のレイアウトは拒否する。
+- fn1 set mode (1=onboard, 2=host)、fn2 get mode、fn3 set current profile (sector BE16)、fn4 get current profile。
+- fn5 read `(sector BE16, offset BE16)` →16B。最後は offset **239**（240ではない）。
+- fn6 address write `(sector BE16, offset BE16, length BE16)`、fn7 data16B、fn8 write end。
+- sector 0 は directory: 4Bごとに `[sector BE16, enabled, reserved]`、FFFF 終端。
+  CRC を検査し、最初の enabled=1 のユーザー sector を使用する。
+  **書き込み先は1–255のみ**。sector 0 と ROM `>=0100` は拒否。ROM `0101` は工場出荷プロファイル。
+- sector の最後2Bは CRC-CCITT (`poly=1021, init=FFFF`)、先頭253Bを対象に BE 保存。
+  読み取り・書き込み前に検証する。ROM の FFFF CRC は検査の対象にせず、ROM 自体を操作対象にしない。
+- 書き込みごとに directory と profile 全体を現物から再取得 → CRC検査 → 対象項目だけ変更 →
+  CRC再計算 → fn6 `(sector,0,255)` → fn7×16（最終15B+ゼロ1B）→fn8 → 全255B読み戻し一致確認 →
+  fn1 onboard mode → fn3 current profile で即時反映。CRC不一致・読み戻し不一致はエラー。
+  同じバイト列の変更では flash 書き込みを省略し、mode/profile の反映だけ行う。
+  `open` / `read` / `battery` / example は mode/profile/memory の設定要求を送らない。
+
+### 6.3 format 3 の対象バイト
+
+| offset | 意味 |
+|---|---|
+| 0 | report rate: 1000/値 Hz (1/2/4/8) |
+| 1 / 2 | default DPI index / shift DPI index (0始まり) |
+| 3–12 | DPI×5 LE16、0は未使用 |
+| 32–55 | ボタン×6、各4B |
+| 253–254 | CRC BE16 |
+
+- 基本ボタン `[80,01,00,mask]`、mask=01/02/04/08/10。
+  キー `[80,02,modifier,keycode]`、consumer `[80,03,usage BE16]`。
+  DPI `[90,op,00,00]`、op=03(up)/04(down)/05(cycle)/07(shift)、disabled `[80,00,00,00]`。
+  shift は既存ステージの DPI を指定する（index 2 は全ボタン共通）。
+  スクロール・ダブルクリックなど未対応の動作は拒否する。
+- 未知のボタンは Unsupported として表示し、他項目の変更でも生バイトを保持する。
+  名前(160–207 UTF-16LE)・マクロ・色・電源・angle snapping・timeout(28–31) は保持する。
+  ステージ削除で shift 参照が範囲外になる場合のみ、有効なステージへ参照を修正する。
+- `2201` fn2(sensor=0) → `[sensor,dpi BE16,...]` から現在のステージ表示を求める。
+  起動時設定は別の default index を表示・保存する。ActiveStage の変更も default index に永続化する。
+- 電池は IRoot で `1000`、`1004`、`1001` の順に探索し、存在時のみ caps で宣言する。
+  `1000` fn0 / `1004` fn1 の残量%・充電状態を使用。
+  `1001` fn0 は電圧なので、AA 電池の%を推測せず percent=None とする。
+
+### 6.4 検証と次の確認
+
+- フィクスチャ `crates/devhub-hid/fixtures/logitech/sector1.hex` はバックアップ sector 1 の255B。
+  CRC=**421F**、DPI=**1400/1600/3200**、default index=**1**。
+- 単体テストはフレーム照合・CRC・値域・未知バイト保持・ROM/directory拒否・
+  メモリ書き込みの順序/ゼロ埋め/読み戻し不一致時の反映抑止を確認する（擬似 Link のみ）。
+- 読み取り専用確認: `CARGO_NET_OFFLINE=true cargo run -p devhub-hid --example g304read`。
+  有効な受信機、caps、DPI、6ボタン、polling、検出した電池値を出力する。
+- **2026-11-19 Rust の release example で実機読み取り成功**。応答する受信機1台を検出、
+  DPI=400/1600/1900/3200、default index=2（表示は第3ステージ）、current index=3（3200 DPI）、
+  polling=1000Hz、電池90%・非充電、6ボタン=左/右/中/戻る/進む/DPIサイクル。
+  directory/profile の CRC 検査も通過。mode/profile/memory の設定要求は送信していない。
+  ローカル証拠: `target/g304-read.log`（生成物のため Git 管理外）。
+- 未実施: Rust 経路の実機設定書き込み・電源再投入後の保持。別担当で元データをバックアップして確認する。
+- **2026-11-19 最終検査** (`CARGO_NET_OFFLINE=true`, `CARGO_BUILD_JOBS=1`):
+  `cargo build --release -p device-hub` 成功、`cargo test --workspace` 成功
+  （99件、うち G304 9件、doc-test も成功）。生成物は `target/release/device-hub.exe`。
+  テスト時の警告は変更していない `examples/fdtest.rs:30` の未使用関数 `ee` の1件。
+  `cargo clippy --workspace` は固定1.95.0ツールチェーンに cargo-clippy が未導入で起動不可。
+  Clippy の「新規警告なし」は未確認。rustfmt も未導入。権限・信頼設定・接続は変更していない。
+  証拠は `target/g304-build-final.log`, `target/g304-test.log`, `target/g304-clippy.log`。
+  Obsidian はこの作業の書き込み許可範囲外のため更新せず、この節を引き継ぎとする。

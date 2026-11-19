@@ -10,6 +10,7 @@
 
 | デバイス | VID:PID | usage page | ドライバ | Web 版 | 状態 |
 |---|---|---|---|---|---|
+| Logicool G304 LIGHTSPEED | レシーバー 046D:C53F | FF00 / 02 (long report) | Logitech (`logitech/`) | — (HID++ 2.0) | **Rust 読み取り実機確認済 (2026-11-19)**。Python 参照実装は書込みも確認済み。Rust 書込み往復は未実施。DPI・起動時 DPI・125–1000Hz・6ボタン・電池 |
 | SU66 Max | 1CA6:3009 | FFB0 / 01 | Xsyd (`xsyd.rs`) | hub.xsyd.top/keyboard | **v2 実機検証済** (キーマップ・ライティング・per-key 性能・ポーリング・設定・構成・高度キー・マクロ・live_travel・キャリブレーション) |
 | HTS Plus Pro (無線) | ドングル 33E4:3854 | FF02 / 02 | Mousefit → `mousefit8.rs` (report-8/EEPROM) | www.mouse.fit | **v2 実機検証済** (全設定・DPI・ボタン・マクロ・ポーリング 125–8K・磁気ボタン校正/押下深さ・休眠検知/覚醒自動再読) |
 | HTS Plus Pro (有線) | 33E4:5219 | FF02 / 02 | Mousefit → `mousefit8.rs` (report-8/EEPROM) | www.mouse.fit | **v2 実機検証済** (有線でも feature report は使えず report-8) |

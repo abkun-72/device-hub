@@ -43,6 +43,7 @@ impl DemoHub {
             )),
             Arc::new(DemoDriver::dac()),
             Arc::new(DemoDriver::lamzu()),
+            Arc::new(DemoDriver::g304()),
         ];
         drivers.shrink_to_fit();
         Self {
@@ -232,6 +233,32 @@ impl DemoDriver {
             caps,
             born: Instant::now(),
         }
+    }
+
+    fn g304() -> Self {
+        let mut driver = Self::mouse("demo:g304", "G304 LIGHTSPEED", "g304", 0xc53f,
+            Transport::Wireless24G, Some(80), false);
+        driver.info.vid = 0x046d;
+        driver.info.vendor = "Logicool".into();
+        driver.info.driver = DriverKind::Logitech;
+        driver.caps = crate::logitech::g304_caps(true);
+        let state = DeviceState {
+            profile: ProfileState::default(),
+            settings: [("polling_wireless".into(), SettingValue::Choice(1000)),
+                ("default_dpi_stage".into(), SettingValue::Choice(2))].into(),
+            mouse: Some(MouseState {
+                stages: [1400, 1600, 3200].map(|x| DpiStage { x, y: None, color: Rgb::hex(0), enabled: true }).into(),
+                active_stage: 1,
+                buttons: vec![ButtonAction::Mouse(MouseFn::Left), ButtonAction::Mouse(MouseFn::Right),
+                    ButtonAction::Mouse(MouseFn::Middle), ButtonAction::Mouse(MouseFn::Back),
+                    ButtonAction::Mouse(MouseFn::Forward), ButtonAction::Dpi(DpiFn::Cycle)],
+                macros: vec![], adaptive: None,
+            }),
+            keyboard: None, lighting: Default::default(), peq: None,
+        };
+        driver.factory = state.clone();
+        driver.state = Mutex::new(state);
+        driver
     }
 
     fn dac() -> Self {

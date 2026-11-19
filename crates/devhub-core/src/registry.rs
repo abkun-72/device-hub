@@ -58,6 +58,19 @@ const fn mf(
 /// `PIDWired` / `PIDWireless` / `PIDWireless4K8K` から。usage_page/usage は
 /// HTS Plus Pro 実機 (0xFF02 / 0x02) と同じと仮定 — **他機種は実機で要確認**。
 pub const KNOWN: &[KnownDevice] = &[
+    KnownDevice {
+        vid: 0x046D,
+        pid: 0xC53F,
+        usage_page: Some(0xFF00),
+        usage: Some(0x02), // long report。short collection は開かない。
+        kind: DeviceKind::Mouse,
+        vendor: "Logicool",
+        model: "g304",
+        name: "G304 LIGHTSPEED",
+        transport: Transport::Wireless24G,
+        driver: DriverKind::Logitech,
+        verified: false, // Python 参照実装は検証済み。Rust の書込み確認は別途。
+    },
     // ---------------------------------------------------------------- キーボード
     KnownDevice {
         vid: 0x1CA6,
